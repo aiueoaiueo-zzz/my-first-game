@@ -27,6 +27,31 @@ player.x = (canvas.width - player.width) / 2;
 player.y = canvas.height - player.height - 20;
 
 
+// ===== ステップ5：落ちてくるものを用意する =====
+
+// 落ちてくるもの（障害物）の情報
+const obstacle = {
+  width: 30,
+  height: 30,
+  x: 0,
+  y: 0,
+  speed: 4,          // 1フレームで落ちる距離（ピクセル）
+  color: "#e94b3c",  // 色（赤）
+};
+
+// 障害物を画面の上（見えない位置）に戻し、横の位置をランダムに決める
+function resetObstacle() {
+  // Math.random() は 0以上1未満のランダムな数を返す
+  // それに「動ける幅」をかけると、0〜右端までのどこかになる
+  obstacle.x = Math.random() * (canvas.width - obstacle.width);
+  // y をマイナスにすると、画面の上の外側からスッと出てくる
+  obstacle.y = -obstacle.height;
+}
+
+// 最初の位置を決めておく
+resetObstacle();
+
+
 // ===== ステップ4：操作を受け付ける =====
 
 // 今「左」「右」が押されているかを覚えておく入れ物
@@ -99,6 +124,14 @@ function update() {
   if (player.x > canvas.width - player.width) {
     player.x = canvas.width - player.width;
   }
+
+  // 障害物を下へ動かす（y を増やす）
+  obstacle.y += obstacle.speed;
+
+  // 画面の下から完全に出たら、また上から落とす
+  if (obstacle.y > canvas.height) {
+    resetObstacle();
+  }
 }
 
 // 画面を描く（描画）
@@ -109,6 +142,10 @@ function draw() {
   // プレイヤーを描く。fillRect(左上のx, 左上のy, 幅, 高さ)
   ctx.fillStyle = player.color;
   ctx.fillRect(player.x, player.y, player.width, player.height);
+
+  // 障害物を描く
+  ctx.fillStyle = obstacle.color;
+  ctx.fillRect(obstacle.x, obstacle.y, obstacle.width, obstacle.height);
 }
 
 // 「更新 → 描画」を1回やって、次の回を予約する
