@@ -27,29 +27,36 @@ player.x = (canvas.width - player.width) / 2;
 player.y = canvas.height - player.height - 20;
 
 
-// ===== ステップ5：落ちてくるものを用意する =====
+// ===== ステップ5・6：落ちてくるものを用意する =====
 
-// 落ちてくるもの（障害物）の情報
-const obstacle = {
-  width: 30,
-  height: 30,
-  x: 0,
-  y: 0,
-  speed: 4,          // 1フレームで落ちる距離（ピクセル）
-  color: "#e94b3c",  // 色（赤）
-};
+// 落ちてくるもの（障害物）をまとめて入れておく配列
+// 配列は [ ] で作る「データを順番に並べて入れておく箱」。最初は空っぽ
+let obstacles = [];
 
-// 障害物を画面の上（見えない位置）に戻し、横の位置をランダムに決める
-function resetObstacle() {
-  // Math.random() は 0以上1未満のランダムな数を返す
-  // それに「動ける幅」をかけると、0〜右端までのどこかになる
-  obstacle.x = Math.random() * (canvas.width - obstacle.width);
-  // y をマイナスにすると、画面の上の外側からスッと出てくる
-  obstacle.y = -obstacle.height;
+// 何フレームごとに新しい障害物を出すか（60で約1秒）
+const spawnInterval = 40;
+
+// 前回出してから何フレームたったかを数える
+let spawnTimer = 0;
+
+// 新しい障害物を1つ作って、配列に追加する
+function spawnObstacle() {
+  const size = 30;
+  const obstacle = {
+    width: size,
+    height: size,
+    // Math.random() は 0以上1未満のランダムな数を返す
+    // それに「動ける幅」をかけると、0〜右端までのどこかになる
+    x: Math.random() * (canvas.width - size),
+    // y をマイナスにすると、画面の上の外側からスッと出てくる
+    y: -size,
+    // 落ちる速さも少しバラバラにする（3〜6）
+    speed: 3 + Math.random() * 3,
+    color: "#e94b3c",  // 色（赤）
+  };
+  // push で配列の最後に追加する
+  obstacles.push(obstacle);
 }
-
-// 最初の位置を決めておく
-resetObstacle();
 
 
 // ===== ステップ4：操作を受け付ける =====
@@ -125,13 +132,22 @@ function update() {
     player.x = canvas.width - player.width;
   }
 
-  // 障害物を下へ動かす（y を増やす）
-  obstacle.y += obstacle.speed;
-
-  // 画面の下から完全に出たら、また上から落とす
-  if (obstacle.y > canvas.height) {
-    resetObstacle();
+  // 一定の間隔で、新しい障害物を出す
+  spawnTimer++;  // ++ は「1増やす」という意味
+  if (spawnTimer >= spawnInterval) {
+    spawnObstacle();
+    spawnTimer = 0;  // 数え直す
   }
+
+  // 配列の中の障害物を1つずつ取り出して、下へ動かす
+  for (const obstacle of obstacles) {
+    obstacle.y += obstacle.speed;
+  }
+
+  // 画面の下から出た障害物は、配列から取り除く
+  // filter は「条件に合うものだけを残した新しい配列」を作る
+  // ここでは「まだ画面の下まで行っていないもの」だけを残す
+  obstacles = obstacles.filter((obstacle) => obstacle.y < canvas.height);
 }
 
 // 画面を描く（描画）
@@ -143,9 +159,11 @@ function draw() {
   ctx.fillStyle = player.color;
   ctx.fillRect(player.x, player.y, player.width, player.height);
 
-  // 障害物を描く
-  ctx.fillStyle = obstacle.color;
-  ctx.fillRect(obstacle.x, obstacle.y, obstacle.width, obstacle.height);
+  // 障害物を1つずつ描く
+  for (const obstacle of obstacles) {
+    ctx.fillStyle = obstacle.color;
+    ctx.fillRect(obstacle.x, obstacle.y, obstacle.width, obstacle.height);
+  }
 }
 
 // 「更新 → 描画」を1回やって、次の回を予約する
