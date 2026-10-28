@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>よけるゲーム</title>
+  <style>
+    /* ページ全体の見た目 */
+    body {
+      background: #222;      /* 背景を濃いグレーに */
+      display: flex;         /* 中身を中央に並べるための指定 */
+      justify-content: center;
+      margin-top: 40px;
+    }
+    /* ゲーム画面（キャンバス）の見た目 */
+    canvas {
+      background: #fff;      /* キャンバスの中は白 */
+      border: 2px solid #888; /* 境目が分かるように枠線をつける */
+    }
+  </style>
+</head>
+<body>
+  <!-- ステップ1：ゲーム画面となる「画用紙」。幅400 × 高さ600 ピクセル -->
+  <canvas id="game" width="400" height="600"></canvas>
+
+  <!-- ゲームのプログラムを読み込む -->
+  <script src="game.js"></script>
+</body>
+</html>
