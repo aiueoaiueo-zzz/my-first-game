@@ -20,6 +20,10 @@
       border: 2px solid #888; /* 境目が分かるように枠線をつける */
       max-width: 100%;       /* スマホなど狭い画面では、はみ出さないよう縮める */
       height: auto;          /* 縮めても縦横の比率を保つ */
+      touch-action: none;    /* タップしたとき画面がスクロールや拡大をしないようにする */
+      user-select: none;     /* 長押しで文字選択などが出ないようにする */
+      -webkit-user-select: none;
+      -webkit-touch-callout: none;
     }
   </style>
 </head>
