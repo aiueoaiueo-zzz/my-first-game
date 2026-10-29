@@ -49,6 +49,32 @@
       pointer-events: none;  /* 文字がタップの邪魔をしないようにする */
     }
 
+    /* スマホ用のバーチャルスティック（指を置いた場所に出る丸） */
+    #stick {
+      position: absolute;
+      width: 96px;
+      height: 96px;
+      margin: -48px 0 0 -48px; /* 指の位置が丸の中心になるようにずらす */
+      border-radius: 50%;    /* 角を丸めて円にする */
+      border: 2px solid rgba(255, 255, 255, 0.8);
+      background: rgba(255, 255, 255, 0.15);
+      pointer-events: none;
+    }
+    #stick[hidden] {
+      display: none;
+    }
+    /* スティックの中の、指についてくる小さな丸 */
+    #stick-knob {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      width: 40px;
+      height: 40px;
+      margin: -20px 0 0 -20px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.85);
+    }
+
     /* ゲームオーバー画面（最初は隠しておく） */
     #game-over {
       position: absolute;
@@ -84,6 +110,7 @@
   <!-- ゲーム画面。3Dの絵（canvas）は game.js がこの中に入れる -->
   <div id="game-area">
     <div id="score">スコア: 0</div>
+    <div id="stick" hidden><div id="stick-knob"></div></div>
     <div id="game-over" hidden>
       <div class="title">GAME OVER</div>
       <div class="final-score" id="final-score">スコア: 0</div>
