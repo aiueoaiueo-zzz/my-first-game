@@ -59,6 +59,23 @@ function spawnObstacle() {
 }
 
 
+// ===== ステップ7：当たり判定 =====
+
+// 今プレイヤーが障害物にぶつかっているかどうか（true / false）
+let isHit = false;
+
+// 2つの四角 a と b が重なっているかを調べる（AABB判定）
+// 「横方向で重なっている」かつ「縦方向で重なっている」ときだけ、ぶつかっている
+function isColliding(a, b) {
+  return (
+    a.x < b.x + b.width &&   // a の左端が、b の右端より左にある
+    a.x + a.width > b.x &&   // a の右端が、b の左端より右にある
+    a.y < b.y + b.height &&  // a の上端が、b の下端より上にある
+    a.y + a.height > b.y     // a の下端が、b の上端より下にある
+  );
+}
+
+
 // ===== ステップ4：操作を受け付ける =====
 
 // 今「左」「右」が押されているかを覚えておく入れ物
@@ -148,6 +165,10 @@ function update() {
   // filter は「条件に合うものだけを残した新しい配列」を作る
   // ここでは「まだ画面の下まで行っていないもの」だけを残す
   obstacles = obstacles.filter((obstacle) => obstacle.y < canvas.height);
+
+  // どれか1つでもプレイヤーに重なっていたら「当たり」
+  // some は「配列の中に条件に合うものが1つでもあるか」を調べる
+  isHit = obstacles.some((obstacle) => isColliding(player, obstacle));
 }
 
 // 画面を描く（描画）
@@ -156,13 +177,22 @@ function draw() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
   // プレイヤーを描く。fillRect(左上のx, 左上のy, 幅, 高さ)
-  ctx.fillStyle = player.color;
+  // ぶつかっている間はオレンジ色にする
+  ctx.fillStyle = isHit ? "#f5a623" : player.color;
   ctx.fillRect(player.x, player.y, player.width, player.height);
 
   // 障害物を1つずつ描く
   for (const obstacle of obstacles) {
     ctx.fillStyle = obstacle.color;
     ctx.fillRect(obstacle.x, obstacle.y, obstacle.width, obstacle.height);
+  }
+
+  // ぶつかっている間は「当たった！」と表示する
+  if (isHit) {
+    ctx.fillStyle = "#333";
+    ctx.font = "bold 32px sans-serif";
+    ctx.textAlign = "center";  // 指定した x を文字の真ん中にする
+    ctx.fillText("当たった！", canvas.width / 2, 80);
   }
 }
 
