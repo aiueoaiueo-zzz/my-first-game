@@ -217,13 +217,14 @@ function makeCow() {
 // 柵の後ろに3頭置く
 // walking: true の牛は、柵に沿って左右に歩く。ほかの牛は草を食べている
 const cows = [];
-const COW_Z = fenceBack - 2;  // 柵から少し離れた奥
+const COW_Z = fenceBack - 2.8;  // 柵から少し離れた奥（柵と牛の間を、ランニングする人が通る）
 function placeCow(x, z, angle, walking) {
   const cow = makeCow();
   cow.group.position.set(x, 0, z);
   cow.group.rotation.y = angle;    // 向き（ラジアン。Math.PI で半回転）
   cow.walking = walking;
   cow.direction = 1;               // 歩く向き（1＝右、-1＝左）
+  cow.away = false;                // おじゃましに出かけている間は true（このときは下の動きをしない）
   cows.push(cow);
 }
 placeCow(-3.6, COW_Z, 0.4, false);
@@ -233,6 +234,7 @@ placeCow(3.9, COW_Z + 0.2, Math.PI - 0.5, false);
 // 牛を少しずつ動かす。time は「ゲームが始まってからの秒数」、dt は「前のフレームからの秒数」
 function updateCows(time, dt) {
   for (const cow of cows) {
+    if (cow.away) continue;  // おじゃま中の牛は「おじゃま牛」のところで動かす
     const t = time + cow.phase;
 
     if (cow.walking) {
@@ -257,6 +259,103 @@ function updateCows(time, dt) {
       const graze = (Math.sin(t * 0.8) + 1) / 2;
       cow.head.rotation.z = -graze * 0.9;
     }
+  }
+}
+
+
+// ===== 準備：ランニングする人 =====
+// 柵のまわりを、2人がぐるぐる走っている。ゲームには関係しない飾り（当たり判定なし）
+// 人も牛と同じように箱を組み合わせて作る。顔は +x の向き
+
+const skinMaterial = new THREE.MeshLambertMaterial({ color: "#f1c27d" });
+const shoeMaterial = new THREE.MeshLambertMaterial({ color: "#333333" });
+
+// 人を1人作る（シャツの色, ズボンの色, 髪の色）
+function makeRunner(shirtColor, pantsColor, hairColor) {
+  const shirt = new THREE.MeshLambertMaterial({ color: shirtColor });
+  const pants = new THREE.MeshLambertMaterial({ color: pantsColor });
+  const hair = new THREE.MeshLambertMaterial({ color: hairColor });
+
+  const runner = new THREE.Group();
+  // 体全体を上下にはずませるため、もう1つ内側にグループを作る
+  const body = new THREE.Group();
+  runner.add(body);
+
+  addPart(body, 0.3, 0.6, 0.5, shirt, 0, 1.15, 0);        // 胴体
+  addPart(body, 0.32, 0.32, 0.32, skinMaterial, 0, 1.65, 0); // 頭
+  addPart(body, 0.34, 0.1, 0.34, hair, -0.01, 1.84, 0);    // 髪（頭の上）
+  addPart(body, 0.1, 0.25, 0.34, hair, -0.13, 1.7, 0);     // 髪（後ろ）
+
+  // 足（2本）。付け根（腰）を中心に前後にふる
+  const legs = [];
+  for (const z of [0.12, -0.12]) {
+    const leg = new THREE.Group();
+    leg.position.set(0, 0.85, z);
+    addPart(leg, 0.18, 0.75, 0.18, pants, 0, -0.38, 0);
+    addPart(leg, 0.28, 0.1, 0.2, shoeMaterial, 0.04, -0.8, 0); // くつ
+    body.add(leg);
+    legs.push(leg);
+  }
+
+  // 腕（2本）。付け根（肩）を中心に、足と逆向きにふる
+  const arms = [];
+  for (const z of [0.32, -0.32]) {
+    const arm = new THREE.Group();
+    arm.position.set(0, 1.4, z);
+    addPart(arm, 0.14, 0.45, 0.14, shirt, 0, -0.22, 0);
+    addPart(arm, 0.14, 0.12, 0.14, skinMaterial, 0, -0.5, 0); // 手
+    body.add(arm);
+    arms.push(arm);
+  }
+
+  scene.add(runner);
+  return { group: runner, body: body, legs: legs, arms: arms };
+}
+
+// 走るコース：柵の外側を、柵から lane だけ離れた長方形
+// distance（スタートから走った距離）から、今いる場所と向きを計算する
+function runnerPlace(lane, distance) {
+  const xMin = fenceLeft - lane;
+  const xMax = fenceRight + lane;
+  const zMin = fenceBack - lane;
+  const zMax = FIELD_FRONT + lane;
+  const w = xMax - xMin;
+  const d = zMax - zMin;
+  // 1周の長さで割った余り（%）を使うと、何周しても同じコースをくり返す
+  let s = distance % (2 * (w + d));
+
+  // 奥 → 右 → 手前 → 左 の順に、4つの辺を走る
+  if (s < w) return { x: xMin + s, z: zMin, angle: 0 };                       // 奥の辺：右へ
+  s -= w;
+  if (s < d) return { x: xMax, z: zMin + s, angle: -Math.PI / 2 };            // 右の辺：手前へ
+  s -= d;
+  if (s < w) return { x: xMax - s, z: zMax, angle: Math.PI };                 // 手前の辺：左へ
+  s -= w;
+  return { x: xMin, z: zMax - s, angle: Math.PI / 2 };                        // 左の辺：奥へ
+}
+
+// 2人の設定：コース（柵からの距離）、速さ（1秒に走る距離）、スタート位置
+const runners = [
+  { ...makeRunner("#e53935", "#263238", "#3e2723"), lane: 1.0, speed: 2.4, distance: 0 },
+  { ...makeRunner("#fdd835", "#1565c0", "#212121"), lane: 1.5, speed: 2.0, distance: 18 },
+];
+// ※ { ...A, ... } は「A の中身をコピーして、さらに項目を足したもの」を作る書き方
+
+function updateRunners(time, dt) {
+  for (const runner of runners) {
+    runner.distance += runner.speed * dt;
+    const place = runnerPlace(runner.lane, runner.distance);
+    runner.group.position.set(place.x, 0, place.z);
+    runner.group.rotation.y = place.angle;
+
+    // 手足を前後にふって、体を上下にはずませる
+    const step = time * runner.speed * 4;
+    const swing = Math.sin(step) * 0.7;
+    runner.legs[0].rotation.z = swing;
+    runner.legs[1].rotation.z = -swing;
+    runner.arms[0].rotation.z = -swing;
+    runner.arms[1].rotation.z = swing;
+    runner.body.position.y = Math.abs(Math.sin(step)) * 0.08;
   }
 }
 
@@ -364,6 +463,8 @@ function resetGame() {
   player.mesh.material.color.set(PLAYER_COLOR);
   // カメラの注目点もすぐ真ん中に戻す（ゆっくり戻ると、やり直した直後に画面が流れて見にくいため）
   cameraFocus.set(0, 0, 0);
+  // おじゃま中の牛がいたら、すぐ元の場所に帰す
+  resetIntruder();
 
   // 残っている障害物を世界から取り除く
   for (const obstacle of obstacles) {
@@ -585,6 +686,15 @@ function updateCamera(dt) {
     CAMERA_HEIGHT,
     cameraFocus.z + Math.cos(cameraAngle) * CAMERA_RADIUS
   );
+
+  // 牛が着地した直後は、カメラを少しだけ揺らす（だんだん小さくなる）
+  if (shakeTimer > 0) {
+    shakeTimer -= dt;
+    const size = SHAKE_SIZE * Math.max(shakeTimer, 0) / SHAKE_TIME;
+    camera.position.x += (Math.random() - 0.5) * 2 * size;
+    camera.position.y += (Math.random() - 0.5) * 2 * size;
+  }
+
   camera.lookAt(cameraFocus); // いつも注目点（プレイヤーのあたり）を見る
 }
 
@@ -627,6 +737,9 @@ function update(dt) {
   p.x += worldX * player.speed * dt;
   p.z += worldZ * player.speed * dt;
 
+  // おじゃま牛がいたら、牛の中に入れないように押し返す
+  pushPlayerOutOfCow();
+
   // 遊べる範囲の外に出ないように止める
   const half = player.size / 2;
   if (p.x < FIELD_LEFT + half) p.x = FIELD_LEFT + half;
@@ -667,12 +780,214 @@ function update(dt) {
   }
 }
 
+// ===== おじゃま牛 =====
+// ときどき牛が柵を飛び越えて、プレイヤーの近くに居座る
+// 驚かせすぎないように、飛ぶ1秒前に「モ〜？」と予告し、着地の揺れも小さくしている
+// 牛にぶつかってもゲームオーバーにはならない。通れなくなるだけ
+
+const WARN_TIME = 1;       // 予告してから飛ぶまでの秒数
+const JUMP_TIME = 1;       // ジャンプにかかる秒数
+const STAY_TIME = 4;       // 居座る秒数
+const JUMP_HEIGHT = 3.5;   // ジャンプの高さ（柵の高さは 1）
+const COW_BLOCK_RADIUS = 1.0; // 牛の「通れない範囲」の半径
+const SHAKE_TIME = 0.3;    // 着地のときにカメラが揺れる秒数
+// 揺れの大きさ。「動きを減らす」設定にしている人には揺らさない
+const SHAKE_SIZE = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 0.12;
+
+let shakeTimer = 0;
+const cowBubble = document.getElementById("cow-bubble");
+
+const intruder = {
+  cow: null,        // 今おじゃましている牛（いなければ null）
+  mode: "none",     // "none" 来ていない / "warn" 予告中 / "jumpIn" 飛びこみ中 / "stay" 居座り中 / "jumpOut" 帰り中
+  timer: 0,         // 今の mode になってからの秒数
+  nextIn: 8,        // 次の牛が来るまでの秒数
+  from: new THREE.Vector3(), // ジャンプの出発点
+  to: new THREE.Vector3(),   // ジャンプの着地点
+  home: new THREE.Vector3(), // 牛が元いた場所
+  homeAngle: 0,              // 牛が元いたときの向き
+};
+
+// 牛の向きを、(x, z) の点の方へ向ける（牛の頭は +x の向きについている）
+// Math.atan2(縦, 横) は「その方向が何度か」を計算する
+function faceCowTo(cow, x, z) {
+  const pos = cow.group.position;
+  cow.group.rotation.y = Math.atan2(-(z - pos.z), x - pos.x);
+}
+
+// 着地する場所を決める：プレイヤーから 2〜3.5 離れた、遊べる範囲の中
+function chooseLanding() {
+  const p = player.mesh.position;
+  const margin = 0.8;
+  for (let i = 0; i < 30; i++) {  // 範囲に入る場所が見つかるまで、何回か試す
+    const angle = Math.random() * Math.PI * 2;
+    const distance = 2 + Math.random() * 1.5;
+    const x = p.x + Math.cos(angle) * distance;
+    const z = p.z + Math.sin(angle) * distance;
+    if (x > FIELD_LEFT + margin && x < FIELD_RIGHT - margin &&
+        z > FIELD_BACK + margin && z < FIELD_FRONT - margin) {
+      return new THREE.Vector3(x, 0, z);
+    }
+  }
+  // 見つからなかったら、プレイヤーの反対側に降りる
+  return new THREE.Vector3(p.x > 0 ? -3 : 3, 0, 0);
+}
+
+// 吹き出しを出す（文字, ポンと飛び出す動きをつけるか）
+function showBubble(text, pop) {
+  cowBubble.textContent = text;
+  cowBubble.hidden = false;
+  cowBubble.classList.remove("pop");
+  if (pop) {
+    void cowBubble.offsetWidth; // 動きを最初からやり直すためのおまじない
+    cowBubble.classList.add("pop");
+  }
+}
+
+// 吹き出しを牛の頭の上に合わせる（3Dの位置を、画面の上の位置に変換する）
+function placeBubble() {
+  if (cowBubble.hidden || !intruder.cow) return;
+  const headPos = new THREE.Vector3();
+  intruder.cow.head.getWorldPosition(headPos);
+  headPos.y += 0.9;
+  headPos.project(camera); // 画面の左端が -1、右端が 1、下が -1、上が 1 になる
+  cowBubble.style.left = ((headPos.x + 1) / 2) * gameArea.clientWidth + "px";
+  cowBubble.style.top = ((1 - headPos.y) / 2) * gameArea.clientHeight + "px";
+}
+
+// ジャンプ中の位置：出発点から着地点へまっすぐ進みながら、山なりに上がって下がる
+function moveAlongJump(cow, progress) {
+  cow.group.position.lerpVectors(intruder.from, intruder.to, progress);
+  // 4 × 高さ × t × (1 - t) は、t が 0 と 1 のとき 0、真ん中で「高さ」になる山の形
+  cow.group.position.y = 4 * JUMP_HEIGHT * progress * (1 - progress);
+  // 足をたたんで飛んでいるように見せる
+  cow.legs[0].rotation.z = cow.legs[1].rotation.z = 0.6;
+  cow.legs[2].rotation.z = cow.legs[3].rotation.z = -0.6;
+}
+
+function setIntruderMode(mode) {
+  intruder.mode = mode;
+  intruder.timer = 0;
+}
+
+function updateIntruder(dt) {
+  intruder.timer += dt;
+  const cow = intruder.cow;
+
+  if (intruder.mode === "none") {
+    // プレイ中だけ、次の牛が来るまでの時間を数える
+    if (state !== "playing") return;
+    intruder.nextIn -= dt;
+    if (intruder.nextIn > 0) return;
+
+    // 3頭の中からランダムに1頭選ぶ。Math.floor は小数を切り捨てる
+    intruder.cow = cows[Math.floor(Math.random() * cows.length)];
+    intruder.cow.away = true;
+    intruder.home.copy(intruder.cow.group.position);
+    intruder.homeAngle = intruder.cow.group.rotation.y;
+    faceCowTo(intruder.cow, player.mesh.position.x, player.mesh.position.z);
+    showBubble("モ〜？", false);
+    setIntruderMode("warn");
+
+  } else if (intruder.mode === "warn") {
+    // 予告中：頭をすばやく上下にふる
+    cow.head.rotation.z = Math.sin(intruder.timer * 18) * 0.25;
+    if (intruder.timer >= WARN_TIME) {
+      intruder.from.copy(cow.group.position);
+      intruder.to.copy(chooseLanding());
+      faceCowTo(cow, intruder.to.x, intruder.to.z);
+      cow.head.rotation.z = 0;
+      cowBubble.hidden = true;
+      setIntruderMode("jumpIn");
+    }
+
+  } else if (intruder.mode === "jumpIn") {
+    const progress = Math.min(intruder.timer / JUMP_TIME, 1);
+    moveAlongJump(cow, progress);
+    if (progress >= 1) {
+      // 着地！
+      for (const leg of cow.legs) leg.rotation.z = 0;
+      shakeTimer = SHAKE_TIME;
+      showBubble("モ〜！", true);
+      setIntruderMode("stay");
+    }
+
+  } else if (intruder.mode === "stay") {
+    // 居座り中：プレイヤーの方を向いて、ゆっくり頭をふる
+    faceCowTo(cow, player.mesh.position.x, player.mesh.position.z);
+    cow.head.rotation.z = Math.sin(intruder.timer * 4) * 0.15;
+    if (intruder.timer >= 1.5) cowBubble.hidden = true;
+    if (intruder.timer >= STAY_TIME) {
+      intruder.from.copy(cow.group.position);
+      intruder.to.copy(intruder.home);
+      faceCowTo(cow, intruder.to.x, intruder.to.z);
+      cow.head.rotation.z = 0;
+      cowBubble.hidden = true;
+      setIntruderMode("jumpOut");
+    }
+
+  } else if (intruder.mode === "jumpOut") {
+    const progress = Math.min(intruder.timer / JUMP_TIME, 1);
+    moveAlongJump(cow, progress);
+    if (progress >= 1) {
+      finishIntruder();
+    }
+  }
+
+  placeBubble();
+}
+
+// 牛を元の場所と向きに戻して、次の牛が来るまでの時間を決める
+function finishIntruder() {
+  const cow = intruder.cow;
+  if (cow) {
+    cow.group.position.copy(intruder.home);
+    cow.group.rotation.y = intruder.homeAngle;
+    cow.head.rotation.z = 0;
+    for (const leg of cow.legs) leg.rotation.z = 0;
+    cow.away = false;
+  }
+  intruder.cow = null;
+  cowBubble.hidden = true;
+  setIntruderMode("none");
+  intruder.nextIn = 10 + Math.random() * 6; // 10〜16秒後
+}
+
+// リトライしたとき：おじゃま中の牛をすぐ帰して、最初の牛は8秒後に来るようにする
+function resetIntruder() {
+  finishIntruder();
+  intruder.nextIn = 8;
+  shakeTimer = 0;
+}
+
+// 居座っている牛の中に、プレイヤーが入れないように押し返す
+function pushPlayerOutOfCow() {
+  if (intruder.mode !== "stay") return;
+  const p = player.mesh.position;
+  const c = intruder.cow.group.position;
+  let dx = p.x - c.x;
+  let dz = p.z - c.z;
+  let distance = Math.hypot(dx, dz);
+  const minDistance = COW_BLOCK_RADIUS + player.size / 2;
+  if (distance >= minDistance) return;
+  if (distance < 0.001) {  // ちょうど同じ場所なら、とりあえず右へ押し出す
+    dx = 1;
+    dz = 0;
+    distance = 1;
+  }
+  // 牛の中心からプレイヤーへ向かう方向に、ちょうど「通れない範囲」の外まで動かす
+  p.x = c.x + (dx / distance) * minDistance;
+  p.z = c.z + (dz / distance) * minDistance;
+}
+
 function gameLoop() {
   // 前のフレームからの時間。タブを切りかえて戻ったときなどに一気に進まないよう、最大0.05秒にする
   const dt = Math.min(clock.getDelta(), 0.05);
   update(dt);
   // 牛はゲームオーバー中も動かす（clock.elapsedTime は時計を動かしてからの合計秒数）
   updateCows(clock.elapsedTime, dt);
+  updateRunners(clock.elapsedTime, dt);
+  updateIntruder(dt);
   updateCamera(dt);
   // カメラから見た3Dの世界を描く
   renderer.render(scene, camera);
