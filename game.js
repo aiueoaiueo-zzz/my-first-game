@@ -38,6 +38,8 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.setSize(VIEW_WIDTH, VIEW_HEIGHT, false);
 // 影を描けるようにする
 renderer.shadowMap.enabled = true;
+// 影のふちを、少しぼかしてやわらかくする
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 // できあがった絵（canvas）を、ゲーム画面の入れ物のいちばん下に入れる
 gameArea.prepend(renderer.domElement);
 
@@ -120,6 +122,10 @@ function addBox(width, height, depth, material, x, y, z) {
   return mesh;
 }
 
+// 杭の形。CylinderGeometry(上の半径, 下の半径, 高さ, まわりを何面で作るか)
+// 杭はたくさんあるので、形は1つだけ作って使い回す
+const postGeometry = new THREE.CylinderGeometry(POST_SIZE / 2, POST_SIZE / 2 + 0.01, FENCE_HEIGHT, 10);
+
 // 点 (x1, z1) から点 (x2, z2) まで、まっすぐな柵を1本作る
 function addFence(x1, z1, x2, z2) {
   const length = Math.hypot(x2 - x1, z2 - z1);
@@ -129,7 +135,12 @@ function addFence(x1, z1, x2, z2) {
     const t = i / sections; // 0（始まり）〜 1（終わり）
     const x = x1 + (x2 - x1) * t;
     const z = z1 + (z2 - z1) * t;
-    addBox(POST_SIZE, FENCE_HEIGHT, POST_SIZE, fenceMaterial, x, FENCE_HEIGHT / 2, z);
+    // 杭は丸太のような円柱にする
+    const post = new THREE.Mesh(postGeometry, fenceMaterial);
+    post.position.set(x, FENCE_HEIGHT / 2, z);
+    post.castShadow = true;
+    post.receiveShadow = true;
+    scene.add(post);
   }
 
   // 横木：柵の向きに合わせて、長い板を置く
@@ -154,59 +165,104 @@ addFence(fenceRight, fenceBack, fenceRight, FIELD_FRONT); // 右
 
 
 // ===== 準備：牛 =====
-// 柵の後ろに、白黒の牛（ホルスタイン）を置く。ゲームには関係しない飾り
-// 牛は箱を組み合わせて作る。Group（グループ）は、いくつかの物をまとめて1つとして動かせる入れ物
+// 柵の後ろに、白黒の牛（ホルスタイン）を置く。ときどき「おじゃま牛」になる
+// 牛は、球・円柱・カプセルなどの丸い形を組み合わせて作る
+// Group（グループ）は、いくつかの物をまとめて1つとして動かせる入れ物
 
 const cowWhite = new THREE.MeshLambertMaterial({ color: "#f5f5f0" });
 const cowBlack = new THREE.MeshLambertMaterial({ color: "#2b2b2b" });
 const cowPink = new THREE.MeshLambertMaterial({ color: "#f2a7a7" });
 const cowHorn = new THREE.MeshLambertMaterial({ color: "#e8dcc0" });
 
-// 箱を1つ作って、グループの中の (x, y, z) に置く
-function addPart(group, width, height, depth, material, x, y, z) {
-  const mesh = new THREE.Mesh(new THREE.BoxGeometry(width, height, depth), material);
+// 形（Geometry）を受け取って、グループの中の (x, y, z) に置く
+function addShape(group, geometry, material, x, y, z) {
+  const mesh = new THREE.Mesh(geometry, material);
   mesh.position.set(x, y, z);
   mesh.castShadow = true;
   group.add(mesh);
   return mesh;
 }
 
+// よく使う丸い形を作る関数
+// 球：SphereGeometry(半径, 横の分割数, 縦の分割数)。分割数が多いほどなめらかだが重くなる
+function sphere(radius) {
+  return new THREE.SphereGeometry(radius, 16, 12);
+}
+// 円柱：上と下の半径を変えると、先が細い形にもできる
+function cylinder(radiusTop, radiusBottom, height) {
+  return new THREE.CylinderGeometry(radiusTop, radiusBottom, height, 12);
+}
+// カプセル：円柱の両はしが半球になった形。CapsuleGeometry(半径, まっすぐな部分の長さ)
+function capsule(radius, length) {
+  return new THREE.CapsuleGeometry(radius, length, 6, 12);
+}
+
 // 牛を1頭作る。頭は +x の向きについている
 function makeCow() {
   const cow = new THREE.Group();
 
-  // 胴体と、黒いぶち模様（胴体から少しだけはみ出させて、表面に見えるようにする）
-  addPart(cow, 1.6, 0.8, 0.8, cowWhite, 0, 1.0, 0);
-  addPart(cow, 0.5, 0.5, 0.82, cowBlack, -0.3, 1.1, 0);    // 両側面のぶち
-  addPart(cow, 0.35, 0.3, 0.82, cowBlack, 0.45, 0.85, 0);
-  addPart(cow, 0.4, 0.82, 0.35, cowBlack, 0.05, 1.0, 0.1); // 背中のぶち
-  addPart(cow, 0.3, 0.3, 0.3, cowPink, -0.2, 0.55, 0);     // おっぱい
+  // 胴体：横にねかせたカプセル（rotation.z を 90度にすると、縦向きが横向きになる）
+  const body = addShape(cow, capsule(0.42, 0.85), cowWhite, 0, 1.05, 0);
+  body.rotation.z = Math.PI / 2;
+  body.scale.set(1, 1, 0.95); // 少しだけ平たくする
+
+  // 黒いぶち模様：つぶした球を、胴体の表面から少し出るように置く
+  // scale で (横, 縦, 奥行き) の大きさを変えられる。奥行きを小さくすると平たい模様になる
+  const spots = [
+    // [x, y, z, 大きさ, 横長さ]
+    [-0.35, 1.15, 0.36, 0.3, 1.3],
+    [0.3, 0.95, 0.38, 0.2, 1.0],
+    [-0.1, 1.15, -0.37, 0.28, 1.4],
+    [0.4, 1.12, -0.36, 0.18, 1.0],
+  ];
+  for (const [x, y, z, size, stretch] of spots) {
+    const spot = addShape(cow, sphere(size), cowBlack, x, y, z);
+    spot.scale.set(stretch, 1, 0.3);
+  }
+  const backSpot = addShape(cow, sphere(0.25), cowBlack, -0.05, 1.42, 0.05); // 背中のぶち
+  backSpot.scale.set(1.4, 0.3, 1);
+
+  // おっぱい
+  addShape(cow, sphere(0.17), cowPink, -0.25, 0.68, 0);
+  for (const [x, z] of [[-0.18, 0.07], [-0.18, -0.07], [-0.32, 0.07], [-0.32, -0.07]]) {
+    addShape(cow, cylinder(0.025, 0.02, 0.1), cowPink, x, 0.53, z);
+  }
 
   // 足（4本）。付け根を中心に回せるよう、それぞれグループにする
+  // 順番は [前・右, 前・左, 後ろ・右, 後ろ・左]（歩くときに使う）
   const legs = [];
-  for (const [x, z] of [[0.6, 0.25], [0.6, -0.25], [-0.6, 0.25], [-0.6, -0.25]]) {
+  for (const [x, z] of [[0.5, 0.22], [0.5, -0.22], [-0.5, 0.22], [-0.5, -0.22]]) {
     const leg = new THREE.Group();
-    leg.position.set(x, 0.7, z);              // 付け根の位置
-    addPart(leg, 0.2, 0.7, 0.2, cowWhite, 0, -0.35, 0);
-    addPart(leg, 0.22, 0.12, 0.22, cowBlack, 0, -0.66, 0); // ひづめ
+    leg.position.set(x, 0.8, z);              // 付け根の位置
+    addShape(leg, cylinder(0.1, 0.08, 0.68), cowWhite, 0, -0.34, 0);  // 先が細い足
+    addShape(leg, cylinder(0.085, 0.095, 0.12), cowBlack, 0, -0.74, 0); // ひづめ
     cow.add(leg);
     legs.push(leg);
   }
 
-  // しっぽ
-  addPart(cow, 0.08, 0.6, 0.08, cowWhite, -0.82, 0.95, 0);
-  addPart(cow, 0.12, 0.15, 0.12, cowBlack, -0.82, 0.62, 0);
+  // しっぽ：おしりから下にたれる、細い円柱と、先のふさふさ
+  const tail = addShape(cow, cylinder(0.03, 0.025, 0.65), cowWhite, -0.88, 0.95, 0);
+  tail.rotation.z = -0.15;
+  addShape(cow, sphere(0.07), cowBlack, -0.84, 0.62, 0).scale.set(1, 1.5, 1);
 
   // 頭。首の付け根を中心に、うなずくように回せるようグループにする
   const head = new THREE.Group();
-  head.position.set(0.8, 1.2, 0);             // 首の付け根の位置
-  addPart(head, 0.5, 0.5, 0.5, cowWhite, 0.3, 0.05, 0);
-  addPart(head, 0.2, 0.3, 0.52, cowBlack, 0.2, 0.15, 0);  // 顔のぶち
-  addPart(head, 0.2, 0.25, 0.4, cowPink, 0.6, -0.1, 0);   // 鼻先
-  addPart(head, 0.08, 0.2, 0.08, cowHorn, 0.25, 0.38, 0.18);  // 角
-  addPart(head, 0.08, 0.2, 0.08, cowHorn, 0.25, 0.38, -0.18);
-  addPart(head, 0.1, 0.12, 0.25, cowBlack, 0.2, 0.2, 0.35);   // 耳
-  addPart(head, 0.1, 0.12, 0.25, cowBlack, 0.2, 0.2, -0.35);
+  head.position.set(0.7, 1.22, 0);            // 首の付け根の位置
+  const neck = addShape(head, cylinder(0.2, 0.26, 0.4), cowWhite, 0.12, 0, 0);
+  neck.rotation.z = -1.0;                      // 首を前にかたむける
+  addShape(head, sphere(0.27), cowWhite, 0.36, 0.06, 0).scale.set(1.15, 0.95, 0.9);  // 頭
+  addShape(head, sphere(0.2), cowBlack, 0.3, 0.16, 0.08).scale.set(1, 0.9, 1.1);     // 顔のぶち
+  addShape(head, sphere(0.19), cowPink, 0.62, -0.06, 0).scale.set(0.8, 0.75, 1.1);   // 鼻先
+  for (const z of [0.07, -0.07]) {
+    addShape(head, sphere(0.03), cowBlack, 0.75, -0.04, z);                          // 鼻の穴
+  }
+  for (const z of [0.2, -0.2]) {
+    addShape(head, sphere(0.045), cowBlack, 0.53, 0.14, z);                          // 目
+    const horn = addShape(head, new THREE.ConeGeometry(0.045, 0.2, 8), cowHorn, 0.3, 0.33, z * 0.8);
+    horn.rotation.x = z > 0 ? 0.5 : -0.5;                                            // 角を外向きに
+    const ear = addShape(head, sphere(0.1), cowBlack, 0.28, 0.17, z * 1.65);         // 耳
+    ear.scale.set(0.6, 0.35, 1.3);
+  }
   cow.add(head);
 
   scene.add(cow);
@@ -265,10 +321,12 @@ function updateCows(time, dt) {
 
 // ===== 準備：ランニングする人 =====
 // 柵のまわりを、2人がぐるぐる走っている。ゲームには関係しない飾り（当たり判定なし）
-// 人も牛と同じように箱を組み合わせて作る。顔は +x の向き
+// 人も牛と同じように丸い形を組み合わせて作る。顔は +x の向き
 
 const skinMaterial = new THREE.MeshLambertMaterial({ color: "#f1c27d" });
-const shoeMaterial = new THREE.MeshLambertMaterial({ color: "#333333" });
+const shoeMaterial = new THREE.MeshLambertMaterial({ color: "#f5f5f5" });
+const soleMaterial = new THREE.MeshLambertMaterial({ color: "#555555" });
+const eyeMaterial = new THREE.MeshLambertMaterial({ color: "#222222" });
 
 // 人を1人作る（シャツの色, ズボンの色, 髪の色）
 function makeRunner(shirtColor, pantsColor, hairColor) {
@@ -281,29 +339,44 @@ function makeRunner(shirtColor, pantsColor, hairColor) {
   const body = new THREE.Group();
   runner.add(body);
 
-  addPart(body, 0.3, 0.6, 0.5, shirt, 0, 1.15, 0);        // 胴体
-  addPart(body, 0.32, 0.32, 0.32, skinMaterial, 0, 1.65, 0); // 頭
-  addPart(body, 0.34, 0.1, 0.34, hair, -0.01, 1.84, 0);    // 髪（頭の上）
-  addPart(body, 0.1, 0.25, 0.34, hair, -0.13, 1.7, 0);     // 髪（後ろ）
+  // 胴体：縦向きのカプセルを、肩はばの方向（z）に広げる
+  addShape(body, capsule(0.16, 0.32), shirt, 0, 1.2, 0).scale.set(1, 1, 1.5);
+  addShape(body, sphere(0.17), pants, 0, 0.92, 0).scale.set(1, 0.6, 1.4);  // 腰
+  addShape(body, cylinder(0.06, 0.07, 0.12), skinMaterial, 0, 1.5, 0);     // 首
+
+  // 頭：球。髪は、球の上半分（半球）を少し大きくしてかぶせる
+  addShape(body, sphere(0.17), skinMaterial, 0, 1.68, 0);
+  const hairCap = addShape(body, new THREE.SphereGeometry(0.18, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2), hair, -0.015, 1.7, 0);
+  hairCap.rotation.z = 0.25;  // 少し後ろにずらして、おでこを出す
+  for (const z of [0.06, -0.06]) {
+    addShape(body, sphere(0.022), eyeMaterial, 0.155, 1.7, z);             // 目
+  }
 
   // 足（2本）。付け根（腰）を中心に前後にふる
   const legs = [];
-  for (const z of [0.12, -0.12]) {
+  for (const z of [0.1, -0.1]) {
     const leg = new THREE.Group();
-    leg.position.set(0, 0.85, z);
-    addPart(leg, 0.18, 0.75, 0.18, pants, 0, -0.38, 0);
-    addPart(leg, 0.28, 0.1, 0.2, shoeMaterial, 0.04, -0.8, 0); // くつ
+    leg.position.set(0, 0.88, z);
+    addShape(leg, capsule(0.075, 0.6), pants, 0, -0.4, 0);
+    addShape(leg, sphere(0.09), shoeMaterial, 0.05, -0.8, 0).scale.set(1.6, 0.6, 0.9); // くつ
+    addShape(leg, sphere(0.09), soleMaterial, 0.05, -0.84, 0).scale.set(1.65, 0.25, 0.95); // くつの底
     body.add(leg);
     legs.push(leg);
   }
 
   // 腕（2本）。付け根（肩）を中心に、足と逆向きにふる
+  // ひじを曲げたように見せるため、うで（上）とうで（下）に分ける
   const arms = [];
-  for (const z of [0.32, -0.32]) {
+  for (const z of [0.27, -0.27]) {
     const arm = new THREE.Group();
     arm.position.set(0, 1.4, z);
-    addPart(arm, 0.14, 0.45, 0.14, shirt, 0, -0.22, 0);
-    addPart(arm, 0.14, 0.12, 0.14, skinMaterial, 0, -0.5, 0); // 手
+    addShape(arm, capsule(0.055, 0.2), shirt, 0, -0.14, 0);                // 上のうで（そで）
+    const forearm = new THREE.Group();
+    forearm.position.set(0, -0.28, 0);                                     // ひじの位置
+    forearm.rotation.z = 1.2;                                              // ひじを曲げる
+    addShape(forearm, capsule(0.045, 0.18), skinMaterial, 0, -0.12, 0);   // 下のうで
+    addShape(forearm, sphere(0.055), skinMaterial, 0, -0.26, 0);           // 手
+    arm.add(forearm);
     body.add(arm);
     arms.push(arm);
   }
