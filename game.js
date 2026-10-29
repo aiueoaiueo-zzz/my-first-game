@@ -19,12 +19,11 @@ const player = {
   color: "#3a7bd5", // 色（青）
 };
 
-// 横は画面の真ん中に置く：(画面の幅 - プレイヤーの幅) ÷ 2
-player.x = (canvas.width - player.width) / 2;
-
 // 縦は画面の下から少し上（20ピクセル空ける）に置く
 // y は下に行くほど大きくなるので、「画面の高さ - プレイヤーの高さ - 20」
 player.y = canvas.height - player.height - 20;
+
+// 横の位置は、ゲームを始めるたびに resetGame() で真ん中に戻す（ステップ10）
 
 
 // ===== ステップ5・6：落ちてくるものを用意する =====
@@ -61,9 +60,6 @@ function spawnObstacle() {
 
 // ===== ステップ7：当たり判定 =====
 
-// 今プレイヤーが障害物にぶつかっているかどうか（true / false）
-let isHit = false;
-
 // 2つの四角 a と b が重なっているかを調べる（AABB判定）
 // 「横方向で重なっている」かつ「縦方向で重なっている」ときだけ、ぶつかっている
 function isColliding(a, b) {
@@ -73,6 +69,44 @@ function isColliding(a, b) {
     a.y < b.y + b.height &&  // a の上端が、b の下端より上にある
     a.y + a.height > b.y     // a の下端が、b の上端より下にある
   );
+}
+
+
+// ===== ステップ8・9：ゲームの状態とスコア =====
+
+// 今ゲームがどの段階にあるか（状態）
+// "playing" ＝ プレイ中、"gameover" ＝ ゲームオーバー
+let state = "playing";
+
+// スコア：よけきった（画面の下まで落ちた）障害物の数
+let score = 0;
+
+// ゲームオーバーになってから何フレームたったか
+// 当たった瞬間に指が画面に触れていても、すぐにリトライしてしまわないようにするため
+let gameOverTimer = 0;
+
+// リトライできるようになるまでのフレーム数（30で約0.5秒）
+const retryDelay = 30;
+
+
+// ===== ステップ10：リトライ（最初からやり直す） =====
+
+// 変数をすべてゲーム開始時の値に戻す（初期化）
+function resetGame() {
+  // 横は画面の真ん中に置く：(画面の幅 - プレイヤーの幅) ÷ 2
+  player.x = (canvas.width - player.width) / 2;
+  obstacles = [];
+  spawnTimer = 0;
+  score = 0;
+  gameOverTimer = 0;
+  state = "playing";
+}
+
+// ゲームオーバー中で、少し時間がたっていればリトライする
+function tryRetry() {
+  if (state === "gameover" && gameOverTimer >= retryDelay) {
+    resetGame();
+  }
 }
 
 
@@ -91,6 +125,12 @@ const input = {
 document.addEventListener("keydown", (event) => {
   if (event.key === "ArrowLeft") input.left = true;
   if (event.key === "ArrowRight") input.right = true;
+
+  // スペースキーかエンターキーでリトライ（ステップ10）
+  if (event.key === " " || event.key === "Enter") {
+    event.preventDefault();  // スペースキーでページがスクロールしないようにする
+    tryRetry();
+  }
 });
 
 // キーが離されたとき
@@ -126,6 +166,13 @@ function releasePointer() {
 canvas.addEventListener("pointerdown", (event) => {
   // 指を少し動かしても、指を離すまでこのキャンバスの操作として扱う
   canvas.setPointerCapture(event.pointerId);
+
+  // ゲームオーバー中なら、タップ（クリック）でリトライ（ステップ10）
+  if (state === "gameover") {
+    tryRetry();
+    return;  // return でここから先は実行しない
+  }
+
   handlePointer(event);
 });
 canvas.addEventListener("pointermove", (event) => {
@@ -140,6 +187,12 @@ canvas.addEventListener("pointercancel", releasePointer);
 
 // 動きを計算する（更新）
 function update() {
+  // ゲームオーバー中は何も動かさず、経過フレームだけ数える（ステップ8）
+  if (state === "gameover") {
+    gameOverTimer++;
+    return;
+  }
+
   if (input.left) player.x -= player.speed;   // 左へ（x を減らす）
   if (input.right) player.x += player.speed;  // 右へ（x を増やす）
 
@@ -164,11 +217,20 @@ function update() {
   // 画面の下から出た障害物は、配列から取り除く
   // filter は「条件に合うものだけを残した新しい配列」を作る
   // ここでは「まだ画面の下まで行っていないもの」だけを残す
+  const before = obstacles.length;  // 取り除く前の数
   obstacles = obstacles.filter((obstacle) => obstacle.y < canvas.height);
 
-  // どれか1つでもプレイヤーに重なっていたら「当たり」
+  // 減った数 ＝ よけきった数。その分スコアを増やす（ステップ9）
+  score += before - obstacles.length;
+
+  // どれか1つでもプレイヤーに重なっていたらゲームオーバー（ステップ7・8）
   // some は「配列の中に条件に合うものが1つでもあるか」を調べる
-  isHit = obstacles.some((obstacle) => isColliding(player, obstacle));
+  if (obstacles.some((obstacle) => isColliding(player, obstacle))) {
+    state = "gameover";
+    // 押しっぱなしの状態を消しておく（リトライ直後に勝手に動かないように）
+    input.left = false;
+    input.right = false;
+  }
 }
 
 // 画面を描く（描画）
@@ -177,8 +239,8 @@ function draw() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
   // プレイヤーを描く。fillRect(左上のx, 左上のy, 幅, 高さ)
-  // ぶつかっている間はオレンジ色にする
-  ctx.fillStyle = isHit ? "#f5a623" : player.color;
+  // ゲームオーバーのときはオレンジ色にする
+  ctx.fillStyle = state === "gameover" ? "#f5a623" : player.color;
   ctx.fillRect(player.x, player.y, player.width, player.height);
 
   // 障害物を1つずつ描く
@@ -187,12 +249,34 @@ function draw() {
     ctx.fillRect(obstacle.x, obstacle.y, obstacle.width, obstacle.height);
   }
 
-  // ぶつかっている間は「当たった！」と表示する
-  if (isHit) {
-    ctx.fillStyle = "#333";
-    ctx.font = "bold 32px sans-serif";
+  // スコアを左上に表示する（ステップ9）
+  ctx.fillStyle = "#333";
+  ctx.font = "bold 20px sans-serif";
+  ctx.textAlign = "left";  // 指定した x を文字の左端にする
+  ctx.fillText("スコア: " + score, 12, 30);
+
+  // ゲームオーバー画面（ステップ8）
+  if (state === "gameover") {
+    // 画面全体に半透明の黒を重ねて、少し暗くする
+    // rgba の4つ目の数字は透明度（0＝透明、1＝真っ黒）
+    ctx.fillStyle = "rgba(0, 0, 0, 0.6)";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    ctx.fillStyle = "#fff";
     ctx.textAlign = "center";  // 指定した x を文字の真ん中にする
-    ctx.fillText("当たった！", canvas.width / 2, 80);
+
+    ctx.font = "bold 44px sans-serif";
+    ctx.fillText("GAME OVER", canvas.width / 2, 250);
+
+    ctx.font = "bold 28px sans-serif";
+    ctx.fillText("スコア: " + score, canvas.width / 2, 305);
+
+    // リトライできるようになってから案内を出す（ステップ10）
+    if (gameOverTimer >= retryDelay) {
+      ctx.font = "18px sans-serif";
+      ctx.fillText("タップ または スペースキーで", canvas.width / 2, 370);
+      ctx.fillText("もう一度遊ぶ", canvas.width / 2, 398);
+    }
   }
 }
 
@@ -205,5 +289,6 @@ function gameLoop() {
   requestAnimationFrame(gameLoop);
 }
 
-// ゲームループを開始する
+// ゲームを初期状態にしてから、ゲームループを開始する
+resetGame();
 gameLoop();
