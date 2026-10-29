@@ -9,8 +9,10 @@
     /* ページ全体の見た目 */
     body {
       background: #222;      /* 背景を濃いグレーに */
-      display: flex;         /* 中身を中央に並べるための指定 */
-      justify-content: center;
+      display: flex;         /* 中身を中央に縦に並べるための指定 */
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
       margin: 0;
       padding: 24px 16px;    /* 上下24px・左右16pxのすき間 */
       font-family: sans-serif;
@@ -75,6 +77,19 @@
       background: rgba(255, 255, 255, 0.85);
     }
 
+    /* カメラの回転を止める・回すボタン */
+    #camera-toggle {
+      font-size: 16px;
+      padding: 10px 18px;
+      border: 2px solid #888;
+      border-radius: 8px;
+      background: #333;
+      color: #fff;
+    }
+    #camera-toggle:focus-visible {
+      outline: 3px solid #5fb0ff; /* キーボードで選んだときに分かるように枠を出す */
+    }
+
     /* ゲームオーバー画面（最初は隠しておく） */
     #game-over {
       position: absolute;
@@ -117,6 +132,9 @@
       <div class="retry" id="retry-message" hidden>タップ または スペースキーで<br>もう一度遊ぶ</div>
     </div>
   </div>
+
+  <!-- カメラの回転を止める・回すボタン（パソコンでは C キーでも切りかえられる） -->
+  <button id="camera-toggle" type="button">カメラの回転を止める</button>
 
   <!-- 3Dの絵を描くためのライブラリ Three.js を読み込む（先に読み込む必要がある） -->
   <script src="lib/three.min.js"></script>

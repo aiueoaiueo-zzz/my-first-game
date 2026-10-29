@@ -49,8 +49,7 @@ scene.fog = new THREE.Fog("#bfe3ff", 26, 50);            // 遠くをかすま�
 // カメラ：3Dの世界をどこから、どの向きで見るか
 // PerspectiveCamera(視野の広さ[度], 横と縦の比率, これより近いものは描かない, これより遠いものは描かない)
 const camera = new THREE.PerspectiveCamera(50, VIEW_WIDTH / VIEW_HEIGHT, 0.1, 100);
-camera.position.set(0, 18, 8);   // 高い所の手前に置いて
-camera.lookAt(0, 0, -1);         // 見下ろすように向ける（地面の奥行きが見えるように）
+// カメラの置き場所は「ゲームループ」の updateCamera() で毎フレーム決める（ぐるぐる回る）
 
 
 // ===== 準備：ライト（光） =====
@@ -428,8 +427,9 @@ function clearInput() {
   stick.hidden = true;
 }
 
-// 今どちらへ動きたいかを { x, z } で返す（それぞれ -1〜1）
-// x：マイナスが左、プラスが右　z：マイナスが奥、プラスが手前
+// 今どちらへ動きたいかを、画面から見た向きで { x, z } で返す（それぞれ -1〜1）
+// x：マイナスが画面の左、プラスが画面の右　z：マイナスが画面の奥、プラスが画面の手前
+// カメラが回っているので、実際に3Dの世界でどちらへ動くかは update() で計算する
 function getMoveDirection() {
   if (touch.active) {
     // 画面の上方向（指を上にすべらせる）＝ 奥 なので、そのまま z に使える
@@ -549,6 +549,47 @@ gameArea.addEventListener("pointercancel", releasePointer);
 // 時計：前のフレームから何秒たったかを測る
 const clock = new THREE.Clock();
 
+
+// ===== カメラをぐるぐる回す =====
+// カメラは、遊べる範囲の真ん中の上空を中心に、円をえがくようにゆっくり回る
+// 酔いにくいように、速さは一定で、1周に60秒かける
+
+const CAMERA_HEIGHT = 18;   // カメラの高さ
+const CAMERA_RADIUS = 10;   // 真ん中から、カメラまでの横の距離（円の半径）
+const CAMERA_TURN_SPEED = (Math.PI * 2) / 60; // 1秒に回る角度（Math.PI * 2 が1周 ＝ 360度）
+
+let cameraAngle = 0;        // 今の角度。0 のときは真正面（手前）から見ている
+let cameraTurning = true;   // 回すかどうか（ボタンや C キーで切りかえる）
+
+function updateCamera(dt) {
+  if (cameraTurning) {
+    cameraAngle += CAMERA_TURN_SPEED * dt;
+  }
+  // 円の上の位置は、角度の sin と cos で計算できる
+  camera.position.set(
+    Math.sin(cameraAngle) * CAMERA_RADIUS,
+    CAMERA_HEIGHT,
+    Math.cos(cameraAngle) * CAMERA_RADIUS
+  );
+  camera.lookAt(0, 0, 0); // いつも遊べる範囲の真ん中を見る
+}
+
+// 回転のオン・オフを切りかえる
+const cameraButton = document.getElementById("camera-toggle");
+function toggleCamera() {
+  cameraTurning = !cameraTurning; // ! で true と false を入れかえる
+  cameraButton.textContent = cameraTurning ? "カメラの回転を止める" : "カメラを回す";
+}
+cameraButton.addEventListener("click", (event) => {
+  toggleCamera();
+  // マウスや指で押したときは、ボタンの選択を外す
+  // （選択されたままだと、リトライのつもりでスペースキーを押したときにボタンも押されてしまう）
+  if (event.detail > 0) cameraButton.blur();
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key === "c" || event.key === "C") toggleCamera();
+});
+
 // 動きを計算する（更新）
 // dt は「前のフレームから何秒たったか」
 // 「速さ × dt」だけ動かすと、画面の書き換えが速い端末でも遅い端末でも、同じ速さで動く
@@ -561,10 +602,16 @@ function update(dt) {
   }
 
   // プレイヤーを動かす（左右と奥行き）
+  // 入力は「画面から見た向き」なので、カメラが回っている角度の分だけ向きを回してから使う
+  // こうすると、カメラがどこにいても「上にすべらせる＝画面の奥へ進む」になる
   const p = player.mesh.position;
   const move = getMoveDirection();
-  p.x += move.x * player.speed * dt;
-  p.z += move.z * player.speed * dt;
+  const cos = Math.cos(cameraAngle);
+  const sin = Math.sin(cameraAngle);
+  const worldX = move.x * cos + move.z * sin;
+  const worldZ = -move.x * sin + move.z * cos;
+  p.x += worldX * player.speed * dt;
+  p.z += worldZ * player.speed * dt;
 
   // 遊べる範囲の外に出ないように止める
   const half = player.size / 2;
@@ -612,6 +659,7 @@ function gameLoop() {
   update(dt);
   // 牛はゲームオーバー中も動かす（clock.elapsedTime は時計を動かしてからの合計秒数）
   updateCows(clock.elapsedTime, dt);
+  updateCamera(dt);
   // カメラから見た3Dの世界を描く
   renderer.render(scene, camera);
   requestAnimationFrame(gameLoop);
