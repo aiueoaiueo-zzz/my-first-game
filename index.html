@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <!-- スマホでも画面の幅に合わせて表示するための指定 -->
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>よけるゲーム</title>
+  <title>よけるゲーム 3D</title>
   <style>
     /* ページ全体の見た目 */
     body {
@@ -13,24 +13,86 @@
       justify-content: center;
       margin: 0;
       padding: 24px 16px;    /* 上下24px・左右16pxのすき間 */
+      font-family: sans-serif;
     }
-    /* ゲーム画面（キャンバス）の見た目 */
-    canvas {
-      background: #fff;      /* キャンバスの中は白 */
-      border: 2px solid #888; /* 境目が分かるように枠線をつける */
+
+    /* ゲーム画面の入れ物。3Dの絵と、スコアなどの文字を重ねて置く */
+    #game-area {
+      position: relative;    /* 中の文字を、この箱を基準に重ねて置けるようにする */
+      width: 400px;
       max-width: 100%;       /* スマホなど狭い画面では、はみ出さないよう縮める */
-      height: auto;          /* 縮めても縦横の比率を保つ */
+      aspect-ratio: 2 / 3;   /* 縦横の比率を 2:3（400×600 と同じ）に保つ */
+      border: 2px solid #888; /* 境目が分かるように枠線をつける */
+      overflow: hidden;
       touch-action: none;    /* タップしたとき画面がスクロールや拡大をしないようにする */
       user-select: none;     /* 長押しで文字選択などが出ないようにする */
       -webkit-user-select: none;
       -webkit-touch-callout: none;
     }
+
+    /* Three.js が作る3Dの絵（canvas）を、入れ物いっぱいに広げる */
+    #game-area canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+    }
+
+    /* 左上のスコア */
+    #score {
+      position: absolute;    /* 入れ物の中で、場所を指定して重ねる */
+      top: 10px;
+      left: 12px;
+      color: #fff;
+      font-size: 20px;
+      font-weight: bold;
+      text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6); /* 背景が明るくても読めるように影をつける */
+      pointer-events: none;  /* 文字がタップの邪魔をしないようにする */
+    }
+
+    /* ゲームオーバー画面（最初は隠しておく） */
+    #game-over {
+      position: absolute;
+      inset: 0;              /* 入れ物いっぱいに広げる */
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+      background: rgba(0, 0, 0, 0.6); /* 半透明の黒で少し暗くする */
+      color: #fff;
+      text-align: center;
+      pointer-events: none;
+    }
+    #game-over[hidden] {
+      display: none;         /* hidden がついている間は表示しない */
+    }
+    #game-over .title {
+      font-size: 44px;
+      font-weight: bold;
+    }
+    #game-over .final-score {
+      font-size: 28px;
+      font-weight: bold;
+    }
+    #game-over .retry {
+      font-size: 18px;
+      line-height: 1.6;
+    }
   </style>
 </head>
 <body>
-  <!-- ステップ1：ゲーム画面となる「画用紙」。幅400 × 高さ600 ピクセル -->
-  <canvas id="game" width="400" height="600"></canvas>
+  <!-- ゲーム画面。3Dの絵（canvas）は game.js がこの中に入れる -->
+  <div id="game-area">
+    <div id="score">スコア: 0</div>
+    <div id="game-over" hidden>
+      <div class="title">GAME OVER</div>
+      <div class="final-score" id="final-score">スコア: 0</div>
+      <div class="retry" id="retry-message" hidden>タップ または スペースキーで<br>もう一度遊ぶ</div>
+    </div>
+  </div>
 
+  <!-- 3Dの絵を描くためのライブラリ Three.js を読み込む（先に読み込む必要がある） -->
+  <script src="lib/three.min.js"></script>
   <!-- ゲームのプログラムを読み込む -->
   <script src="game.js"></script>
 </body>
