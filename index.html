@@ -90,6 +90,12 @@
       outline: 3px solid #5fb0ff; /* キーボードで選んだときに分かるように枠を出す */
     }
 
+    /* バージョン番号 */
+    #version {
+      color: #aaa;
+      font-size: 13px;
+    }
+
     /* ゲームオーバー画面（最初は隠しておく） */
     #game-over {
       position: absolute;
@@ -136,9 +142,14 @@
   <!-- カメラの回転を止める・回すボタン（パソコンでは C キーでも切りかえられる） -->
   <button id="camera-toggle" type="button">カメラの回転を止める</button>
 
+  <!-- 今どの版を見ているか分かるように表示する（上の ?v= と同じ番号にする） -->
+  <div id="version">バージョン 12</div>
+
   <!-- 3Dの絵を描くためのライブラリ Three.js を読み込む（先に読み込む必要がある） -->
   <script src="lib/three.min.js"></script>
   <!-- ゲームのプログラムを読み込む -->
-  <script src="game.js"></script>
+  <!-- ?v= のあとの番号はバージョン。変更するたびに増やす -->
+  <!-- 番号が変わると、ブラウザは古いファイルを使い回さず、新しく読み込む -->
+  <script src="game.js?v=12"></script>
 </body>
 </html>

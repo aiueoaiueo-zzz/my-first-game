@@ -362,6 +362,8 @@ function resetGame() {
   // プレイヤーを真ん中に戻し、色も青に戻す
   player.mesh.position.set(0, player.size / 2, 0);
   player.mesh.material.color.set(PLAYER_COLOR);
+  // カメラの注目点もすぐ真ん中に戻す（ゆっくり戻ると、やり直した直後に画面が流れて見にくいため）
+  cameraFocus.set(0, 0, 0);
 
   // 残っている障害物を世界から取り除く
   for (const obstacle of obstacles) {
@@ -550,28 +552,40 @@ gameArea.addEventListener("pointercancel", releasePointer);
 const clock = new THREE.Clock();
 
 
-// ===== カメラをぐるぐる回す =====
-// カメラは、遊べる範囲の真ん中の上空を中心に、円をえがくようにゆっくり回る
-// 酔いにくいように、速さは一定で、1周に60秒かける
+// ===== カメラ：プレイヤーを追いかけながら、ぐるぐる回る =====
+// カメラは「注目点」を見下ろしながら、そのまわりを円をえがくようにゆっくり回る
+// 注目点はプレイヤーを少し遅れて追いかけるので、カメラもプレイヤーについていく
+// 酔いにくいように、回る速さは一定（1周に60秒）、追いかけ方もなめらかにしている
 
-const CAMERA_HEIGHT = 18;   // カメラの高さ
-const CAMERA_RADIUS = 10;   // 真ん中から、カメラまでの横の距離（円の半径）
+const CAMERA_HEIGHT = 16;   // カメラの高さ（障害物が出てくる高さ 13 より上にする）
+const CAMERA_RADIUS = 8;    // 注目点から、カメラまでの横の距離（円の半径）
 const CAMERA_TURN_SPEED = (Math.PI * 2) / 60; // 1秒に回る角度（Math.PI * 2 が1周 ＝ 360度）
+const CAMERA_FOLLOW = 3;    // 追いかける強さ。大きいほどすばやく追いつく
 
 let cameraAngle = 0;        // 今の角度。0 のときは真正面（手前）から見ている
 let cameraTurning = true;   // 回すかどうか（ボタンや C キーで切りかえる）
+
+// カメラが見ている点（注目点）。Vector3 は (x, y, z) の3つの数をまとめたもの
+const cameraFocus = new THREE.Vector3(0, 0, 0);
 
 function updateCamera(dt) {
   if (cameraTurning) {
     cameraAngle += CAMERA_TURN_SPEED * dt;
   }
-  // 円の上の位置は、角度の sin と cos で計算できる
+
+  // 注目点を、プレイヤーの足もとに少しずつ近づける
+  // lerp は「今の位置から目標の位置へ、決めた割合だけ近づける」命令
+  // 割合を 1 - Math.exp(-強さ × 秒数) にすると、端末の速さにかかわらず同じように追いかける
+  const target = new THREE.Vector3(player.mesh.position.x, 0, player.mesh.position.z);
+  cameraFocus.lerp(target, 1 - Math.exp(-CAMERA_FOLLOW * dt));
+
+  // 円の上の位置は、角度の sin と cos で計算できる。それを注目点の分だけずらす
   camera.position.set(
-    Math.sin(cameraAngle) * CAMERA_RADIUS,
+    cameraFocus.x + Math.sin(cameraAngle) * CAMERA_RADIUS,
     CAMERA_HEIGHT,
-    Math.cos(cameraAngle) * CAMERA_RADIUS
+    cameraFocus.z + Math.cos(cameraAngle) * CAMERA_RADIUS
   );
-  camera.lookAt(0, 0, 0); // いつも遊べる範囲の真ん中を見る
+  camera.lookAt(cameraFocus); // いつも注目点（プレイヤーのあたり）を見る
 }
 
 // 回転のオン・オフを切りかえる
