@@ -44,7 +44,7 @@ gameArea.prepend(renderer.domElement);
 // シーン：3Dの世界そのもの。ここに物やライトを置いていく
 const scene = new THREE.Scene();
 scene.background = new THREE.Color("#bfe3ff");          // 空の色（水色）
-scene.fog = new THREE.Fog("#bfe3ff", 18, 40);            // 遠くをかすませて奥行きを出す
+scene.fog = new THREE.Fog("#bfe3ff", 26, 50);            // 遠くをかすませて奥行きを出す
 
 // カメラ：3Dの世界をどこから、どの向きで見るか
 // PerspectiveCamera(視野の広さ[度], 横と縦の比率, これより近いものは描かない, これより遠いものは描かない)
@@ -99,24 +99,167 @@ field.position.set((FIELD_LEFT + FIELD_RIGHT) / 2, 0.01, (FIELD_BACK + FIELD_FRO
 field.receiveShadow = true;
 scene.add(field);
 
-// 遊べる範囲の左右と奥に、低い壁を置く（ここから先には行けない目印）
-// 手前は、壁があるとプレイヤーが見えにくくなるので置かない
-const wallMaterial = new THREE.MeshLambertMaterial({ color: "#8d6e63" });
-const WALL_THICKNESS = 0.5;
-const WALL_HEIGHT = 0.6;
+// ===== 準備：牧場の柵 =====
+// 遊べる範囲の左右と奥に、木の柵を立てる（ここから先には行けない目印）
+// 柵は「杭（くい）」を等間隔に立てて、その間に横木（よこぎ）を2本渡したもの
+// 手前は、柵があるとプレイヤーが見えにくくなるので置かない
 
-// 壁を1枚作って置く（幅, 奥行き, 置く場所の x, 置く場所の z）
-function addWall(width, depth, x, z) {
-  const wall = new THREE.Mesh(new THREE.BoxGeometry(width, WALL_HEIGHT, depth), wallMaterial);
-  wall.position.set(x, WALL_HEIGHT / 2, z);
-  wall.castShadow = true;
-  wall.receiveShadow = true;
-  scene.add(wall);
+const fenceMaterial = new THREE.MeshLambertMaterial({ color: "#a47148" }); // 木の色
+const FENCE_HEIGHT = 1.0;     // 杭の高さ
+const POST_SIZE = 0.16;       // 杭の太さ
+const POST_SPACING = 1.5;     // 杭と杭のだいたいの間隔
+const RAIL_HEIGHTS = [0.4, 0.8]; // 横木を渡す高さ（2本）
+const FENCE_GAP = 0.25;       // 遊べる範囲の端から、柵までのすき間
+
+// 物を作って世界に置き、影を落とす・受ける設定もする
+function addBox(width, height, depth, material, x, y, z) {
+  const mesh = new THREE.Mesh(new THREE.BoxGeometry(width, height, depth), material);
+  mesh.position.set(x, y, z);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  scene.add(mesh);
+  return mesh;
 }
-const fieldCenterZ = (FIELD_BACK + FIELD_FRONT) / 2;
-addWall(WALL_THICKNESS, fieldDepth, FIELD_LEFT - WALL_THICKNESS / 2, fieldCenterZ);   // 左
-addWall(WALL_THICKNESS, fieldDepth, FIELD_RIGHT + WALL_THICKNESS / 2, fieldCenterZ);  // 右
-addWall(fieldWidth + WALL_THICKNESS * 2, WALL_THICKNESS, 0, FIELD_BACK - WALL_THICKNESS / 2); // 奥
+
+// 点 (x1, z1) から点 (x2, z2) まで、まっすぐな柵を1本作る
+function addFence(x1, z1, x2, z2) {
+  const length = Math.hypot(x2 - x1, z2 - z1);
+  // 杭の数：長さを間隔で割って、端数は切り上げ（Math.ceil）。両端にも立てるので +1
+  const sections = Math.ceil(length / POST_SPACING);
+  for (let i = 0; i <= sections; i++) {
+    const t = i / sections; // 0（始まり）〜 1（終わり）
+    const x = x1 + (x2 - x1) * t;
+    const z = z1 + (z2 - z1) * t;
+    addBox(POST_SIZE, FENCE_HEIGHT, POST_SIZE, fenceMaterial, x, FENCE_HEIGHT / 2, z);
+  }
+
+  // 横木：柵の向きに合わせて、長い板を置く
+  const alongX = Math.abs(x2 - x1) > Math.abs(z2 - z1); // 横向き（左右に伸びる）柵かどうか
+  for (const y of RAIL_HEIGHTS) {
+    addBox(
+      alongX ? length : 0.06,  // 横向きなら x 方向に長く
+      0.1,
+      alongX ? 0.06 : length,  // 縦向きなら z 方向に長く
+      fenceMaterial,
+      (x1 + x2) / 2, y, (z1 + z2) / 2
+    );
+  }
+}
+
+const fenceLeft = FIELD_LEFT - FENCE_GAP;
+const fenceRight = FIELD_RIGHT + FENCE_GAP;
+const fenceBack = FIELD_BACK - FENCE_GAP;
+addFence(fenceLeft, fenceBack, fenceRight, fenceBack);    // 奥
+addFence(fenceLeft, fenceBack, fenceLeft, FIELD_FRONT);   // 左
+addFence(fenceRight, fenceBack, fenceRight, FIELD_FRONT); // 右
+
+
+// ===== 準備：牛 =====
+// 柵の後ろに、白黒の牛（ホルスタイン）を置く。ゲームには関係しない飾り
+// 牛は箱を組み合わせて作る。Group（グループ）は、いくつかの物をまとめて1つとして動かせる入れ物
+
+const cowWhite = new THREE.MeshLambertMaterial({ color: "#f5f5f0" });
+const cowBlack = new THREE.MeshLambertMaterial({ color: "#2b2b2b" });
+const cowPink = new THREE.MeshLambertMaterial({ color: "#f2a7a7" });
+const cowHorn = new THREE.MeshLambertMaterial({ color: "#e8dcc0" });
+
+// 箱を1つ作って、グループの中の (x, y, z) に置く
+function addPart(group, width, height, depth, material, x, y, z) {
+  const mesh = new THREE.Mesh(new THREE.BoxGeometry(width, height, depth), material);
+  mesh.position.set(x, y, z);
+  mesh.castShadow = true;
+  group.add(mesh);
+  return mesh;
+}
+
+// 牛を1頭作る。頭は +x の向きについている
+function makeCow() {
+  const cow = new THREE.Group();
+
+  // 胴体と、黒いぶち模様（胴体から少しだけはみ出させて、表面に見えるようにする）
+  addPart(cow, 1.6, 0.8, 0.8, cowWhite, 0, 1.0, 0);
+  addPart(cow, 0.5, 0.5, 0.82, cowBlack, -0.3, 1.1, 0);    // 両側面のぶち
+  addPart(cow, 0.35, 0.3, 0.82, cowBlack, 0.45, 0.85, 0);
+  addPart(cow, 0.4, 0.82, 0.35, cowBlack, 0.05, 1.0, 0.1); // 背中のぶち
+  addPart(cow, 0.3, 0.3, 0.3, cowPink, -0.2, 0.55, 0);     // おっぱい
+
+  // 足（4本）。付け根を中心に回せるよう、それぞれグループにする
+  const legs = [];
+  for (const [x, z] of [[0.6, 0.25], [0.6, -0.25], [-0.6, 0.25], [-0.6, -0.25]]) {
+    const leg = new THREE.Group();
+    leg.position.set(x, 0.7, z);              // 付け根の位置
+    addPart(leg, 0.2, 0.7, 0.2, cowWhite, 0, -0.35, 0);
+    addPart(leg, 0.22, 0.12, 0.22, cowBlack, 0, -0.66, 0); // ひづめ
+    cow.add(leg);
+    legs.push(leg);
+  }
+
+  // しっぽ
+  addPart(cow, 0.08, 0.6, 0.08, cowWhite, -0.82, 0.95, 0);
+  addPart(cow, 0.12, 0.15, 0.12, cowBlack, -0.82, 0.62, 0);
+
+  // 頭。首の付け根を中心に、うなずくように回せるようグループにする
+  const head = new THREE.Group();
+  head.position.set(0.8, 1.2, 0);             // 首の付け根の位置
+  addPart(head, 0.5, 0.5, 0.5, cowWhite, 0.3, 0.05, 0);
+  addPart(head, 0.2, 0.3, 0.52, cowBlack, 0.2, 0.15, 0);  // 顔のぶち
+  addPart(head, 0.2, 0.25, 0.4, cowPink, 0.6, -0.1, 0);   // 鼻先
+  addPart(head, 0.08, 0.2, 0.08, cowHorn, 0.25, 0.38, 0.18);  // 角
+  addPart(head, 0.08, 0.2, 0.08, cowHorn, 0.25, 0.38, -0.18);
+  addPart(head, 0.1, 0.12, 0.25, cowBlack, 0.2, 0.2, 0.35);   // 耳
+  addPart(head, 0.1, 0.12, 0.25, cowBlack, 0.2, 0.2, -0.35);
+  cow.add(head);
+
+  scene.add(cow);
+  // 動かすときに使うものを、まとめて返す
+  return { group: cow, head: head, legs: legs, phase: Math.random() * 10 };
+}
+
+// 柵の後ろに3頭置く
+// walking: true の牛は、柵に沿って左右に歩く。ほかの牛は草を食べている
+const cows = [];
+const COW_Z = fenceBack - 2;  // 柵から少し離れた奥
+function placeCow(x, z, angle, walking) {
+  const cow = makeCow();
+  cow.group.position.set(x, 0, z);
+  cow.group.rotation.y = angle;    // 向き（ラジアン。Math.PI で半回転）
+  cow.walking = walking;
+  cow.direction = 1;               // 歩く向き（1＝右、-1＝左）
+  cows.push(cow);
+}
+placeCow(-3.6, COW_Z, 0.4, false);
+placeCow(0, COW_Z - 0.6, 0, true);
+placeCow(3.9, COW_Z + 0.2, Math.PI - 0.5, false);
+
+// 牛を少しずつ動かす。time は「ゲームが始まってからの秒数」、dt は「前のフレームからの秒数」
+function updateCows(time, dt) {
+  for (const cow of cows) {
+    const t = time + cow.phase;
+
+    if (cow.walking) {
+      // 柵に沿って左右に歩き、端まで来たら向きを変える
+      const pos = cow.group.position;
+      pos.x += cow.direction * 0.6 * dt;
+      // ほかの牛にぶつからないよう、x が -1.3〜1.3 の間だけを歩く
+      if (pos.x > 1.3) cow.direction = -1;
+      if (pos.x < -1.3) cow.direction = 1;
+      // 頭が進む向きを向くようにする（右向き＝0、左向き＝半回転）
+      cow.group.rotation.y = cow.direction === 1 ? 0 : Math.PI;
+      // 足を前後にふる。Math.sin は -1〜1 をなめらかに行ったり来たりする
+      const swing = Math.sin(t * 6) * 0.4;
+      cow.legs[0].rotation.z = swing;
+      cow.legs[3].rotation.z = swing;
+      cow.legs[1].rotation.z = -swing;
+      cow.legs[2].rotation.z = -swing;
+      cow.head.rotation.z = Math.sin(t * 3) * 0.05;
+    } else {
+      // 草を食べる：ゆっくり頭を下げたり上げたりする
+      // 0〜1 の間で行ったり来たりする値を作り、それに合わせて頭を下げる
+      const graze = (Math.sin(t * 0.8) + 1) / 2;
+      cow.head.rotation.z = -graze * 0.9;
+    }
+  }
+}
 
 
 // ===== プレイヤー =====
@@ -467,6 +610,8 @@ function gameLoop() {
   // 前のフレームからの時間。タブを切りかえて戻ったときなどに一気に進まないよう、最大0.05秒にする
   const dt = Math.min(clock.getDelta(), 0.05);
   update(dt);
+  // 牛はゲームオーバー中も動かす（clock.elapsedTime は時計を動かしてからの合計秒数）
+  updateCows(clock.elapsedTime, dt);
   // カメラから見た3Dの世界を描く
   renderer.render(scene, camera);
   requestAnimationFrame(gameLoop);
